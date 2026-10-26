@@ -1,7 +1,7 @@
 from PySide6.QtWidgets import (
     QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QCheckBox, QPushButton, QTextEdit,
-    QGroupBox, QScrollArea, QComboBox, QGridLayout
+    QGroupBox, QScrollArea, QComboBox, QGridLayout, QLabel
 )
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
@@ -17,7 +17,7 @@ class QACheatSheet(QMainWindow):
     def __init__(self):
         super().__init__()
 
-        self.setWindowTitle("QA Cheat Sheet Generator (30.06.2026)")
+        self.setWindowTitle("QA Cheat Sheet (15.09.2026)")
         self.resize(1100, 750)
 
         self.init_ui()
@@ -81,7 +81,7 @@ class QACheatSheet(QMainWindow):
         left_layout.addWidget(main_type_group)
 
         # Подтипы
-        self.subtypes_group = QGroupBox("Подтипы")
+        self.subtypes_group = QGroupBox("Назначение")
         self.subtypes_layout = QGridLayout()
         self.subtypes_group.setLayout(self.subtypes_layout)
         self.subtypes_group.setVisible(False)
