@@ -5,7 +5,6 @@ from .constants import APP_NAME
 
 CONFIG_VERSION = 1
 
-# Поля json-конфигурации (кроме названия игры)
 _TEXT_KEYS = ("url", "exe_path", "saves_path", "backup_path")
 _FLAG_KEYS = ("use_client", "dark_souls_mode")
 _CONFIG_KEYS = _TEXT_KEYS + _FLAG_KEYS
@@ -13,8 +12,6 @@ _CONFIG_KEYS = _TEXT_KEYS + _FLAG_KEYS
 
 @dataclass
 class GameConfig:
-    """Конфигурация одной игры (все поля формы)."""
-
     name: str = ""
     use_client: bool = False
     url: str = ""
@@ -24,7 +21,6 @@ class GameConfig:
     dark_souls_mode: bool = False
 
     def to_dict(self) -> dict:
-        """Преобразует конфигурацию в словарь для записи в json."""
         return {
             "app": APP_NAME,
             "version": CONFIG_VERSION,
@@ -39,16 +35,6 @@ class GameConfig:
 
     @classmethod
     def from_dict(cls, data: object) -> "GameConfig | None":
-        """Создаёт конфигурацию из словаря.
-
-        Принимаются и конфигурации, созданные или отредактированные вручную:
-        обязательно только название игры, отсутствующие поля получают значения
-        по умолчанию. Файл должен либо содержать отметку приложения, либо хотя бы
-        одно из известных полей конфигурации, чтобы посторонние json-файлы
-        не принимались за конфигурации.
-
-        Возвращает None, если данные не подходят.
-        """
         if not isinstance(data, dict):
             return None
         if "app" in data and data["app"] != APP_NAME:

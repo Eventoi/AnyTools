@@ -12,8 +12,6 @@ from .config_list_module import ConfigListModule
 
 
 class MainWindow(QMainWindow):
-    """Основное окно приложения."""
-
     def __init__(self, settings: AppSettings) -> None:
         super().__init__()
         self.setWindowTitle(c.WINDOW_TITLE)
@@ -39,19 +37,17 @@ class MainWindow(QMainWindow):
         self._form_module.config_created.connect(self._list_module.select_name)
         self._form_module.launch_requested.connect(self._start_session)
 
-        # При возврате в окно подхватываем конфигурации, измененные вручную вне программы
         app = QApplication.instance()
         if app is not None:
             app.applicationStateChanged.connect(self._on_application_state_changed)
 
     def _on_application_state_changed(self, state: Qt.ApplicationState) -> None:
-        """Синхронизирует конфигурации с диском, когда пользователь возвращается в приложение."""
         if state == Qt.ApplicationState.ApplicationActive:
             self._store.sync()
+            self._form_module.refresh_path_errors()
 
     # ------------------------------------------------------ Запуск игры
     def _start_session(self, config: GameConfig) -> None:
-        """Запускает выбранную конфигурацию в фоновом потоке."""
         if self._session is not None:
             return
 
@@ -66,7 +62,6 @@ class MainWindow(QMainWindow):
         session.start()
 
     def _on_session_finished(self) -> None:
-        """Игра закрыта и бэкап завершён: возвращаем список конфигураций."""
         session, self._session = self._session, None
         if session is not None:
             session.deleteLater()

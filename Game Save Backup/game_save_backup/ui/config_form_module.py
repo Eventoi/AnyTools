@@ -26,7 +26,6 @@ logger = logging.getLogger(__name__)
 
 
 def _create_path_edit(placeholder: str) -> QLineEdit:
-    """Заблокированное поле пути: значение задаётся только кнопкой троеточия."""
     edit = QLineEdit()
     edit.setPlaceholderText(placeholder)
     edit.setEnabled(False)
@@ -34,34 +33,21 @@ def _create_path_edit(placeholder: str) -> QLineEdit:
 
 
 def _create_browse_button() -> QPushButton:
-    """Кнопка троеточия справа от поля ввода."""
     button = QPushButton(c.BUTTON_BROWSE_TEXT)
     button.setFixedWidth(36)
     return button
 
 
 class ConfigFormModule(QGroupBox):
-    """Форма создания и редактирования конфигурации.
-
-    Пока конфигурация не создана, значения хранятся в форме. Конфигурация
-    создаётся при расфокусировке поля «Название игры», после этого все
-    изменения полей автоматически сохраняются в ней.
-    """
-
-    # Пользователь нажал «Запустить» (передаётся копия конфигурации)
     launch_requested = Signal(object)
-    # Конфигурация создана и появилась в списке (передаётся название)
     config_created = Signal(str)
 
     def __init__(self, store: ConfigStore, settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(c.TITLE_CONFIG_CREATE, parent)
         self._store = store
         self._settings = settings
-        # Название конфигурации, с которой связана форма (None — ещё не создана)
         self._bound_name: str | None = None
-        # Идёт программное заполнение формы: сохранение не требуется
         self._loading = False
-        # Названия запущенных игр (в нижнем регистре)
         self._running: set[str] = set()
 
         self._build_ui()
@@ -174,22 +160,24 @@ class ConfigFormModule(QGroupBox):
             self._url_edit.clear()
             self._set_path(self._exe_edit, "")
             self._set_path(self._saves_edit, "")
-            # Последний указанный путь бэкапа подставляется всегда
             self._set_path(self._backup_edit, last_path)
             self._ds_check.setChecked(False)
-            self._name_header.set_error(None)
-            self._saves_header.set_error(None)
+            for header in (
+                self._name_header,
+                self._exe_header,
+                self._saves_header,
+                self._backup_header,
+            ):
+                header.set_error(None)
         finally:
             self._loading = False
         self.setTitle(c.TITLE_CONFIG_CREATE)
 
-        # Одноразовое сканирование подставленной папки бэкапов
         if rescan and last_path:
             self._store.scan_root(last_path)
-        self._apply_states()
+        self._refresh_path_errors()
 
     def show_edit(self, name: str) -> None:
-        """Переключает модуль в режим редактирования созданной конфигурации."""
         config = self._store.get(name)
         if config is None:
             self.show_create()
@@ -198,7 +186,6 @@ class ConfigFormModule(QGroupBox):
         self.setTitle(c.TITLE_CONFIG_EDIT)
 
     def _fill_from_config(self, config: GameConfig) -> None:
-        """Заполняет все поля формы из конфигурации (заголовок модуля не меняется)."""
         self._loading = True
         try:
             self._name_edit.setText(config.name)
@@ -209,15 +196,16 @@ class ConfigFormModule(QGroupBox):
             self._set_path(self._backup_edit, config.backup_path)
             self._ds_check.setChecked(config.dark_souls_mode)
             self._name_header.set_error(None)
+            self._exe_header.set_error(None)
             self._saves_header.set_error(None)
+            self._backup_header.set_error(None)
             self._bound_name = config.name
         finally:
             self._loading = False
-        self._refresh_saves_error()
+        self._refresh_path_errors()
         self._apply_states()
 
     def _on_config_reloaded(self, old_name: str, new_name: str) -> None:
-        """Конфигурация отредактирована вручную вне программы: подхватываем изменения."""
         if self._bound_name is None or self._bound_name.casefold() != old_name.casefold():
             return
         config = self._store.get(new_name)
@@ -225,12 +213,10 @@ class ConfigFormModule(QGroupBox):
             self._fill_from_config(config)
 
     def _on_config_removed(self, name: str) -> None:
-        """Конфигурация удалена с диска: форма возвращается к созданию новой."""
         if self._bound_name is not None and self._bound_name.casefold() == name.casefold():
             self.show_create(rescan=False)
 
     def set_running(self, names: set[str]) -> None:
-        """Сообщает форме, какие игры запущены (их редактирование блокируется)."""
         self._running = {name.casefold() for name in names}
         self._apply_states()
 
@@ -239,13 +225,11 @@ class ConfigFormModule(QGroupBox):
         self._refresh_name_error()
 
     def _refresh_name_error(self) -> None:
-        """Показывает ошибку, если введённое название уже есть в списке."""
         name = sanitize_folder_name(self._name_edit.text())
         exists = bool(name) and self._store.has(name, ignore=self._bound_name)
         self._set_field_error(self._name_header, c.ERROR_CONFIG_EXISTS if exists else None)
 
     def _on_name_committed(self) -> None:
-        """Расфокусировка поля названия: создание конфигурации или переименование."""
         if self._loading or self._is_locked():
             return
 
@@ -302,25 +286,51 @@ class ConfigFormModule(QGroupBox):
         self._refresh_saves_error()
         self._autosave()
 
-    def _refresh_saves_error(self) -> None:
-        """Проверяет, соответствует ли выбранный в поле «Сэйвы» путь режиму Dark Souls.
+    def refresh_path_errors(self) -> None:
+        self._refresh_path_errors()
 
-        - Режим включен, а выбрана папка: «Выберите файл сохранения».
-        - Режим выключен, а выбран файл: «Выберите папку сохранений».
-        Ошибка исчезает, когда режим и тип пути снова совпадают: переключением
-        чекбокса обратно или выбором файла (папки) в поле «Сэйвы».
-        """
+    def _refresh_path_errors(self) -> None:
+        missing = {
+            label: edit.text()
+            for label, edit in (
+                (c.LABEL_EXE, self._exe_edit),
+                (c.LABEL_SAVES, self._saves_edit),
+                (c.LABEL_BACKUP, self._backup_edit),
+            )
+            if self._path_is_missing(edit.text())
+        }
+        if missing:
+            # Результат проверки пишется в журнал приложения (для диагностики)
+            logger.info("Не найдены пути конфигурации %r: %s", self._bound_name, missing)
+        self._refresh_exe_error()
+        self._refresh_saves_error()
+        self._refresh_backup_error()
+
+    @staticmethod
+    def _path_is_missing(path: str) -> bool:
+        return bool(path) and not os.path.exists(path)
+
+    def _refresh_exe_error(self) -> None:
+        missing = self._path_is_missing(self._exe_edit.text())
+        self._set_field_error(self._exe_header, c.ERROR_CHECK_PATH if missing else None)
+
+    def _refresh_backup_error(self) -> None:
+        missing = self._path_is_missing(self._backup_edit.text())
+        self._set_field_error(self._backup_header, c.ERROR_CHECK_PATH if missing else None)
+
+    def _refresh_saves_error(self) -> None:
         path = self._saves_edit.text()
         error: str | None = None
         if path:
-            if self._ds_check.isChecked() and os.path.isdir(path):
+            if self._path_is_missing(path):
+                error = c.ERROR_CHECK_PATH
+            elif self._ds_check.isChecked() and os.path.isdir(path):
                 error = c.ERROR_SELECT_SAVE_FILE
             elif not self._ds_check.isChecked() and os.path.isfile(path):
                 error = c.ERROR_SELECT_SAVES_FOLDER
         self._set_field_error(self._saves_header, error)
 
     def _choose_exe(self) -> None:
-        """Кнопка троеточия: добавление exe-файла."""
         path, _ = QFileDialog.getOpenFileName(
             self,
             c.DIALOG_SELECT_EXE,
@@ -329,10 +339,10 @@ class ConfigFormModule(QGroupBox):
         )
         if path:
             self._set_path(self._exe_edit, path)
+            self._refresh_exe_error()
             self._after_path_changed()
 
     def _choose_saves(self) -> None:
-        """Кнопка троеточия поля «Сэйвы»: файл при включенном режиме Dark Souls, иначе папка."""
         start = self._start_dir(self._saves_edit.text())
         if self._ds_check.isChecked():
             path, _ = QFileDialog.getOpenFileName(self, c.DIALOG_SELECT_FILE, start)
@@ -344,7 +354,6 @@ class ConfigFormModule(QGroupBox):
             self._after_path_changed()
 
     def _choose_backup(self) -> None:
-        """Кнопка троеточия поля «Бэкап сэйвов»: добавление папки."""
         path = QFileDialog.getExistingDirectory(
             self, c.DIALOG_SELECT_FOLDER, self._start_dir(self._backup_edit.text())
         )
@@ -352,9 +361,9 @@ class ConfigFormModule(QGroupBox):
             return
         path = os.path.normpath(path)
         self._settings.set_last_backup_path(path)
-        # Одноразовое сканирование: импорт найденных json-конфигураций
         self._store.scan_root(path)
         self._set_path(self._backup_edit, path)
+        self._refresh_backup_error()
         self._after_path_changed()
 
     def _after_path_changed(self) -> None:
@@ -363,7 +372,6 @@ class ConfigFormModule(QGroupBox):
 
     # --------------------------------------------------------- Сохранение
     def _collect(self, name: str) -> GameConfig:
-        """Собирает конфигурацию из значений формы."""
         return GameConfig(
             name=name,
             use_client=self._client_check.isChecked(),
@@ -375,7 +383,6 @@ class ConfigFormModule(QGroupBox):
         )
 
     def _autosave(self) -> None:
-        """Автоматически сохраняет изменения в созданной конфигурации."""
         if self._loading or self._bound_name is None or self._is_locked():
             return
         if not self._store.has(self._bound_name):
@@ -389,7 +396,6 @@ class ConfigFormModule(QGroupBox):
 
     # ------------------------------------------------------------- Запуск
     def _has_field_errors(self) -> bool:
-        """Выдало ли любое из полей ввода ошибку."""
         headers = (
             self._name_header,
             self._url_header,
@@ -400,7 +406,6 @@ class ConfigFormModule(QGroupBox):
         return any(header.has_error() for header in headers)
 
     def _can_launch(self) -> bool:
-        """Можно ли запускать: нет ошибок в полях и заполнены все обязательные поля."""
         if self._has_field_errors():
             return False
         if not sanitize_folder_name(self._name_edit.text()):
@@ -412,20 +417,20 @@ class ConfigFormModule(QGroupBox):
         return True
 
     def _on_launch_clicked(self) -> None:
-        # Фиксируем несохранённые изменения полей перед запуском
         self._on_name_committed()
-        if self._bound_name is None or not self._can_launch():
+        if self._bound_name is None:
+            return
+        self._refresh_path_errors()
+        if not self._can_launch():
             return
         self._autosave()
         self.launch_requested.emit(self._collect(self._bound_name))
 
     # ------------------------------------------------------------ Состояние
     def _is_locked(self) -> bool:
-        """Запущена ли игра, конфигурацию которой сейчас показывает форма."""
         return self._bound_name is not None and self._bound_name.casefold() in self._running
 
     def _apply_states(self, *_args) -> None:
-        """Обновляет доступность элементов формы."""
         locked = self._is_locked()
         self._name_edit.setEnabled(not locked)
         self._client_check.setEnabled(not locked)
@@ -438,20 +443,17 @@ class ConfigFormModule(QGroupBox):
 
     # ----------------------------------------------------------- Помощники
     def _set_field_error(self, header: FieldHeader, text: str | None) -> None:
-        """Показывает или скрывает ошибку поля и обновляет доступность кнопки «Запустить»."""
         header.set_error(text)
         self._apply_states()
 
     @staticmethod
     def _set_path(edit: QLineEdit, path: str) -> None:
-        """Записывает путь в поле и показывает полный путь во всплывающей подсказке."""
         native = os.path.normpath(path) if path else ""
         edit.setText(native)
         edit.setToolTip(native)
 
     @staticmethod
     def _start_dir(current: str) -> str:
-        """Папка, с которой открывается проводник."""
         if current:
             path = Path(current)
             folder = path if path.is_dir() else path.parent

@@ -10,20 +10,12 @@ from .widgets import ConfigListWidget, InfoLogWidget
 
 
 class ConfigListModule(QGroupBox):
-    """Список конфигураций в алфавитном порядке.
-
-    Во время запуска игры вместо списка показывается окно информации.
-    """
-
-    # Пользователь кликнул по созданной конфигурации
     config_selected = Signal(str)
-    # Пользователь кликнул по пустому месту списка
     create_requested = Signal()
 
     def __init__(self, store: ConfigStore, parent: QWidget | None = None) -> None:
         super().__init__(c.TITLE_CONFIG_LIST, parent)
         self._store = store
-        # Название выделенной конфигурации (сохраняется при обновлении списка)
         self._current_name: str | None = None
 
         self._collator = QCollator(QLocale(QLocale.Language.Russian))
@@ -54,12 +46,10 @@ class ConfigListModule(QGroupBox):
         self.create_requested.emit()
 
     def _on_config_renamed(self, old_name: str, new_name: str) -> None:
-        """Выделенная конфигурация переименована: выделение переходит на новое название."""
         if self._current_name and self._current_name.casefold() == old_name.casefold():
             self._current_name = new_name
 
     def refresh(self) -> None:
-        """Перестраивает список в алфавитном порядке, сохраняя выделение."""
         names = sorted(self._store.names(), key=cmp_to_key(self._collator.compare))
         self._list.clear()
         self._list.addItems(names)
@@ -70,17 +60,14 @@ class ConfigListModule(QGroupBox):
                 self._current_name = None
 
     def selected_name(self) -> str | None:
-        """Название выделенной конфигурации."""
         items = self._list.selectedItems()
         return items[0].text() if items else None
 
     def select_name(self, name: str) -> None:
-        """Выделяет конфигурацию без открытия модуля редактирования."""
         self._current_name = name
         self._highlight(name)
 
     def _highlight(self, name: str) -> None:
-        """Подсвечивает конфигурацию в списке."""
         self._list.blockSignals(True)
         try:
             self._list.clearSelection()
@@ -95,12 +82,10 @@ class ConfigListModule(QGroupBox):
 
     # ------------------------------------------------- Окно информации
     def show_log(self) -> None:
-        """Показывает окно информации вместо списка конфигураций."""
         self._log.reset()
         self._stack.setCurrentWidget(self._log)
 
     def show_list(self) -> None:
-        """Возвращает список конфигураций."""
         self._stack.setCurrentWidget(self._list)
 
     def append_log_line(self, text: str) -> None:
